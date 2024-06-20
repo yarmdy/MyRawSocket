@@ -25,18 +25,32 @@ while (true)
     try
     {
         int bytesRead = await socket.ReceiveAsync(buffer);
-        
-        IntPtr ptr = Marshal.AllocHGlobal(Marshal.SizeOf<IPHeader>());
-        Marshal.Copy(buffer, 0, ptr, Marshal.SizeOf<IPHeader>());
-        IPHeader header = Marshal.PtrToStructure<IPHeader>(ptr);
-        var sIP = IPAddress.Parse(string.Join(".", BitConverter.GetBytes(header.SourceAddress)));
-        var tIP = IPAddress.Parse(string.Join(".", BitConverter.GetBytes(header.DestinationAddress)));
-        var protocol = header.Protocol;
-        if (bytesRead > 0)
-        {
-            // 解析 ICMP 数据包
-            Console.WriteLine($"接收：({protocol}){sIP}->{tIP}【{bytesRead}】");
-        }
+        var data = buffer.Take(bytesRead).ToArray();
+#pragma warning disable CS4014 // 由于此调用不会等待，因此在调用完成前将继续执行当前方法
+        Task.Run(() => {
+            IntPtr ptr = Marshal.AllocHGlobal(Marshal.SizeOf<IPHeader>());
+            Marshal.Copy(data, 0, ptr, Marshal.SizeOf<IPHeader>());
+            IPHeader header = Marshal.PtrToStructure<IPHeader>(ptr);
+            Marshal.FreeHGlobal(ptr);
+            var sIP = IPAddress.Parse(string.Join(".", BitConverter.GetBytes(header.SourceAddress)));
+            var tIP = IPAddress.Parse(string.Join(".", BitConverter.GetBytes(header.DestinationAddress)));
+            var protocol = header.Protocol;
+            if (bytesRead > 0)
+            {
+                // 解析 ICMP 数据包
+                Console.WriteLine($"接收：({protocol}){sIP}->{tIP}【{bytesRead}】");
+            }
+            if (protocol != 6)
+            {
+                return; ;
+            }
+            ptr = Marshal.AllocHGlobal(Marshal.SizeOf<TcpHeader>());
+            Marshal.Copy(data, (header.VersionAndHeaderLength&0x0F)*4, ptr, Marshal.SizeOf<TcpHeader>());
+            var tcpheader = Marshal.PtrToStructure<TcpHeader>(ptr);
+            Marshal.FreeHGlobal(ptr);
+            Console.WriteLine($"TCP：({tcpheader.SequenceNumber}){tcpheader.SourcePort}->{tcpheader.DestinationPort}【{bytesRead}】");
+        });
+
     }
     catch(Exception ex)
     {
@@ -64,7 +78,7 @@ public struct IPHeader
     public byte DifferentiatedServices;   // 区分服务
     public ushort TotalLength;            // 总长度
     public ushort Identification;         // 标识
-    public ushort FlagsAndOffset;         // 标志位和片偏移
+    public ushort FlagsAndFragmentOffset; // 标志位和片偏移
     public byte TimeToLive;               // 存活时间
     public byte Protocol;                 // 协议
     public ushort HeaderChecksum;         // 头部校验和
