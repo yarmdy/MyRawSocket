@@ -1,4 +1,5 @@
 ﻿// See https://aka.ms/new-console-template for more information
+using System;
 using System.Collections;
 using System.Net;
 using System.Net.Sockets;
@@ -32,6 +33,20 @@ void toLittle<T>(byte[] data,int offset) where T:struct
         } while (++lf < fSize / 2);
     }
 }
+const ushort _URG_ = 1 << 5;
+const ushort _ACK_ = 1 << 4;
+const ushort _PSH_ = 1 << 3;
+const ushort _RST_ = 1 << 2;
+const ushort _SYN_ = 1 << 1;
+const ushort _FIN_ = 1 << 0;
+(bool URG, bool ACK, bool PSH, bool RST, bool SYN, bool FIN) getTcpTag(ushort val)
+{
+    var flag = (((ushort)(val << 10)) >> 10);
+    return ((val & _URG_)>0, (val & _ACK_) > 0, (val & _PSH_) > 0, (val & _RST_) > 0, (val & _SYN_) > 0, (val & _FIN_) > 0);
+}
+
+
+
 
 var socket = new Socket(AddressFamily.InterNetwork, SocketType.Raw, ProtocolType.IP);
 //socket.Blocking = false;
@@ -52,7 +67,7 @@ while (true)
     break;
 }
 var myip = ips[index - 1];
-socket.Bind(new IPEndPoint(myip, 0));
+socket.Bind(new IPEndPoint(myip, 666));
 
 socket.SetSocketOption(SocketOptionLevel.IP,SocketOptionName.HeaderIncluded,true);
 
@@ -63,6 +78,13 @@ byte[] optionOut = new byte[4];
 socket.IOControl(IOControlCode.ReceiveAll, optionIn, optionOut);
 
 
+{
+    var socketTcp = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+    socketTcp.Bind(new IPEndPoint(myip, 666));
+    socketTcp.Listen(0);
+}
+
+
 byte[] buffer = new byte[102400];
 var sizeTcpHeader = Marshal.SizeOf<TcpHeader>();
 var sizeIPHeader = Marshal.SizeOf<IPHeader>();
@@ -70,6 +92,7 @@ while (true)
 {
     try
     {
+        
         int bytesRead = socket.Receive(buffer);
         var data = buffer.Take(bytesRead).ToArray();
 #pragma warning disable CS4014 // 由于此调用不会等待，因此在调用完成前将继续执行当前方法
@@ -99,7 +122,12 @@ while (true)
             {
                 return;
             }
-            Console.WriteLine($"TCP：{sIP}:{tcpheader.SourcePort}->{tIP}:{tcpheader.DestinationPort}【{bytesRead}】");
+            var flag = tcpheader.DataOffsetAndFlags;
+            var (urg,ack,psh,rst,syn,fin) =getTcpTag(flag);
+            Console.WriteLine($"TCP：{sIP}:{tcpheader.SourcePort}->{tIP}:{tcpheader.DestinationPort}【{tcpheader.SequenceNumber}:{bytesRead}】");
+            //toLittle<IPHeader>(data, 0);
+            //toLittle<TcpHeader>(data, sizeIPHeader);
+            //socket.SendTo(data,new IPEndPoint(tIP, tcpheader.DestinationPort));
 
         }).Wait();
 
